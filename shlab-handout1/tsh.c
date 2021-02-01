@@ -110,6 +110,70 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline)
 {
+    char *args[MAXARGS];
+    int bg = parseline(cmdline, args);
+    int pgid = 0;
+
+    if (args[0] == NULL)
+    {
+        return;
+    }
+
+    builtin_cmd(args); //If it's a built in command, just run it
+
+    int cmds[20]; //Todo: make this not a magical number (max num of commands?)
+    int stdin_redir[20];
+    int stdout_redir[20];
+
+    int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
+
+    for (int i = 0; i < numCommands; i++) //Create children
+    {
+
+        int p[2];
+
+        if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
+        {
+            if (pipe(p) == -1)
+            {
+                fprintf(stderr, "Pipe Failed");
+                return;
+            }
+        }
+
+        if (stdin_redir[i] > -1) //If we have input redirection
+        {
+            //Open file
+            //Redirect
+        }
+
+        if (stdout_redir[i] > -1) //If we have out redirection
+        {
+            //Open file
+            //Redirect
+        }
+
+        int pid = fork();
+
+        if (pid == 0) //If we are the CHILD
+        {
+            execve(args[cmds[i]], &args[cmds[i]], environ);
+        }
+        else //If we are the PARENT
+        {
+            if (i == 0) //If this is the first child created
+            {
+                pgid = pid; //Then the group id is set the the first child process group
+            }
+            setpgid(pid, pgid); //Set all children to have our process group id (which is the pid of the first child created)
+
+            waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
+        }
+    }
+
+    // int cmds[]
+
+    // parseargs(args, args, );
     return;
 }
 
@@ -253,6 +317,10 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv)
 {
+    if (strcmp(argv[0], "quit") == 0) //If the command is quit
+    {
+        exit(EXIT_SUCCESS);
+    }
     return 0; /* not a builtin command */
 }
 
