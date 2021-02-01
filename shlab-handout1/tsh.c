@@ -128,9 +128,12 @@ void eval(char *cmdline)
     int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
 
     int old_p[2];
+    int old_stdin = dup(STDIN_FILENO);
+    int old_stdout = dup(STDOUT_FILENO);
 
     for (int i = 0; i < numCommands; i++) //Create children
     {
+        // printf("i = %d", i);
 
         int p[2];
 
@@ -179,18 +182,20 @@ void eval(char *cmdline)
         }
         else //If we are the PARENT
         {
-            // old_p[0] = p[0];
+            old_p[0] = p[0];
             // old_p[1] = p[1];
 
             if (i == 0) //If this is the first child created
             {
-                pgid = pid; //Then the group id is set the the first child process group
+                pgid = pid;  //Then the group id is set the the first child process group
+                close(p[1]); //whaaa?
+                // old_p[0] = p[0];
             }
             else if (i < numCommands - 1)
             {
                 close(p[1]);
                 close(old_p[0]);
-                old_p[0] = p[0];
+                // old_p[0] = p[0];
             }
             else
             {
@@ -204,6 +209,9 @@ void eval(char *cmdline)
         }
 
         waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
+
+        dup2(old_stdin, STDIN_FILENO);
+        dup2(old_stdout, STDOUT_FILENO);
     }
 
     // int cmds[]
@@ -356,6 +364,10 @@ int builtin_cmd(char **argv)
     {
         exit(EXIT_SUCCESS);
     }
+    // else
+    // {
+    //     printf("HALP!!!!");
+    // }
     return 0; /* not a builtin command */
 }
 
