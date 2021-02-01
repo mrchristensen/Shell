@@ -122,53 +122,59 @@ void eval(char *cmdline)
     builtin_cmd(args); //If it's a built in command, just run it
 
     int cmds[20]; //Todo: make this not a magical number (max num of commands?)
-    int stdin_redir[20];
-    int stdout_redir[20];
+    int stdin_redir[220];
+    int stdout_redir[220];
 
     int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
 
-    // int old_p[2];
+    int old_p[2];
 
     for (int i = 0; i < numCommands; i++) //Create children
     {
 
-        // int p[2];
+        int p[2];
 
-        // if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
-        // {
-        //     if (pipe(p) == -1)
-        //     {
-        //         fprintf(stderr, "Pipe Failed");
-        //         return;
-        //     }
-        // }
-
-        // if (stdin_redir[i] > -1) //If we have input redirection
-        // {
-        //     FILE *pipeFile = fdopen(p[STDIN_FILENO], "r"); //Open file
-        //     dup2(fileno(pipeFile), STDIN_FILENO);          //Redirect
-        // }
-        // else if (i > 0) //If this isn't the first command
-        // {
-        //     dup2(old_p[STDIN_FILENO], STDIN_FILENO); //STDIN to read end of pipe
-        //     close(p[STDOUT_FILENO]);                 //WRITE end closed
-        // }
-
-        // if (stdout_redir[i] > -1) //If we have out redirection
-        // {
-        //     FILE *pipeFile = fdopen(p[STDOUT_FILENO], "w"); //Open file
-        //     dup2(fileno(pipeFile), STDOUT_FILENO);          //Redirect
-        // }
-        // else if (i < numCommands - 1) //If this isn't the last command
-        // {
-        //     dup2(p[STDOUT_FILENO], STDOUT_FILENO); //STDOUT to write end of pipe
-        //     close(p[STDIN_FILENO]);                //READ in closed
-        // }
+        if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
+        {
+            if (pipe(p) == -1)
+            {
+                fprintf(stderr, "Pipe Creation Failed");
+                return;
+            }
+        }
 
         int pid = fork();
 
         if (pid == 0) //If we are the CHILD
         {
+
+            if (i == 0)
+            {
+                close(p[0]);
+                dup2(p[1], 1);
+            }
+            else if (i < numCommands - 1)
+            {
+                close(p[0]);
+                dup2(p[1], 1);
+                dup2(old_p[0], 0);
+            }
+            else
+            {
+                dup2(old_p[0], 0);
+            }
+
+            if (stdin_redir[i] >= 0)
+            {
+                FILE *in = fopen(args[stdin_redir[i]], "r");
+                dup2(fileno(in), 0);
+            }
+            if (stdout_redir[i] >= 0)
+            {
+                FILE *out = fopen(args[stdout_redir[i]], "w");
+                dup2(fileno(out), 1);
+            }
+
             execve(args[cmds[i]], &args[cmds[i]], environ);
         }
         else //If we are the PARENT
@@ -180,13 +186,24 @@ void eval(char *cmdline)
             {
                 pgid = pid; //Then the group id is set the the first child process group
             }
-            setpgid(pid, pgid); //Set all children to have our process group id (which is the pid of the first child created)
+            else if (i < numCommands - 1)
+            {
+                close(p[1]);
+                close(old_p[0]);
+                old_p[0] = p[0];
+            }
+            else
+            {
+                close(old_p[0]);
+            }
 
-            waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
+            setpgid(pid, pgid); //Set all children to have our process group id (which is the pid of the first child created)
 
             // close(old_p[STDIN_FILENO]);
             // close(old_p[STDOUT_FILENO]);
         }
+
+        waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
     }
 
     // int cmds[]
