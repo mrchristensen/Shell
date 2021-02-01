@@ -127,43 +127,43 @@ void eval(char *cmdline)
 
     int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
 
-    int old_p[2];
+    // int old_p[2];
 
     for (int i = 0; i < numCommands; i++) //Create children
     {
 
-        int p[2];
+        // int p[2];
 
-        if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
-        {
-            if (pipe(p) == -1)
-            {
-                fprintf(stderr, "Pipe Failed");
-                return;
-            }
-        }
+        // if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
+        // {
+        //     if (pipe(p) == -1)
+        //     {
+        //         fprintf(stderr, "Pipe Failed");
+        //         return;
+        //     }
+        // }
 
-        if (stdin_redir[i] > -1) //If we have input redirection
-        {
-            FILE *pipeFile = fdopen(p[STDIN_FILENO], "r"); //Open file
-            dup2(fileno(pipeFile), STDIN_FILENO);          //Redirect
-        }
-        else if (i > 0) //If this isn't the first command
-        {
-            dup2(old_p[STDIN_FILENO], STDIN_FILENO); //STDIN to read end of pipe
-            close(p[STDOUT_FILENO]);                 //WRITE end closed
-        }
+        // if (stdin_redir[i] > -1) //If we have input redirection
+        // {
+        //     FILE *pipeFile = fdopen(p[STDIN_FILENO], "r"); //Open file
+        //     dup2(fileno(pipeFile), STDIN_FILENO);          //Redirect
+        // }
+        // else if (i > 0) //If this isn't the first command
+        // {
+        //     dup2(old_p[STDIN_FILENO], STDIN_FILENO); //STDIN to read end of pipe
+        //     close(p[STDOUT_FILENO]);                 //WRITE end closed
+        // }
 
-        if (stdout_redir[i] > -1) //If we have out redirection
-        {
-            FILE *pipeFile = fdopen(p[STDOUT_FILENO], "w"); //Open file
-            dup2(fileno(pipeFile), STDOUT_FILENO);          //Redirect
-        }
-        else if (i < numCommands - 1) //If this isn't the last command
-        {
-            dup2(p[STDOUT_FILENO], STDOUT_FILENO); //STDOUT to write end of pipe
-            close(p[STDIN_FILENO]);                //READ in closed
-        }
+        // if (stdout_redir[i] > -1) //If we have out redirection
+        // {
+        //     FILE *pipeFile = fdopen(p[STDOUT_FILENO], "w"); //Open file
+        //     dup2(fileno(pipeFile), STDOUT_FILENO);          //Redirect
+        // }
+        // else if (i < numCommands - 1) //If this isn't the last command
+        // {
+        //     dup2(p[STDOUT_FILENO], STDOUT_FILENO); //STDOUT to write end of pipe
+        //     close(p[STDIN_FILENO]);                //READ in closed
+        // }
 
         int pid = fork();
 
@@ -173,8 +173,8 @@ void eval(char *cmdline)
         }
         else //If we are the PARENT
         {
-            old_p[0] = p[0];
-            old_p[1] = p[1];
+            // old_p[0] = p[0];
+            // old_p[1] = p[1];
 
             if (i == 0) //If this is the first child created
             {
@@ -184,8 +184,8 @@ void eval(char *cmdline)
 
             waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
 
-            close(old_p[STDIN_FILENO]);
-            close(old_p[STDOUT_FILENO]);
+            // close(old_p[STDIN_FILENO]);
+            // close(old_p[STDOUT_FILENO]);
         }
     }
 
