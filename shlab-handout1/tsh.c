@@ -127,6 +127,8 @@ void eval(char *cmdline)
 
     int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
 
+    int old_p[2];
+
     for (int i = 0; i < numCommands; i++) //Create children
     {
 
@@ -143,14 +145,24 @@ void eval(char *cmdline)
 
         if (stdin_redir[i] > -1) //If we have input redirection
         {
-            //Open file
-            //Redirect
+            FILE *pipeFile = fdopen(p[STDIN_FILENO], "r"); //Open file
+            dup2(fileno(pipeFile), STDIN_FILENO);          //Redirect
+        }
+        else if (i > 0) //If this isn't the first command
+        {
+            dup2(old_p[STDIN_FILENO], STDIN_FILENO); //STDIN to read end of pipe
+            close(p[STDOUT_FILENO]);                 //WRITE end closed
         }
 
         if (stdout_redir[i] > -1) //If we have out redirection
         {
-            //Open file
-            //Redirect
+            FILE *pipeFile = fdopen(p[STDOUT_FILENO], "w"); //Open file
+            dup2(fileno(pipeFile), STDOUT_FILENO);          //Redirect
+        }
+        else if (i < numCommands - 1) //If this isn't the last command
+        {
+            dup2(p[STDOUT_FILENO], STDOUT_FILENO); //STDOUT to write end of pipe
+            close(p[STDIN_FILENO]);                //READ in closed
         }
 
         int pid = fork();
@@ -161,6 +173,9 @@ void eval(char *cmdline)
         }
         else //If we are the PARENT
         {
+            old_p[0] = p[0];
+            old_p[1] = p[1];
+
             if (i == 0) //If this is the first child created
             {
                 pgid = pid; //Then the group id is set the the first child process group
@@ -168,6 +183,9 @@ void eval(char *cmdline)
             setpgid(pid, pgid); //Set all children to have our process group id (which is the pid of the first child created)
 
             waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
+
+            close(old_p[STDIN_FILENO]);
+            close(old_p[STDOUT_FILENO]);
         }
     }
 
