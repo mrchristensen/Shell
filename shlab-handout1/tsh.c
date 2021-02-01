@@ -112,21 +112,26 @@ void eval(char *cmdline)
 {
     char *args[MAXARGS];
     int bg = parseline(cmdline, args);
-    int pgid = 0;
+    pid_t pid;
+    pid_t pgid;
 
     if (args[0] == NULL)
     {
         return;
     }
 
-    builtin_cmd(args); //If it's a built in command, just run it
+    if (builtin_cmd(args)) //If it's a built in command, just run it
+    {
+        return;
+    }
 
-    int cmds[20]; //Todo: make this not a magical number (max num of commands?)
+    int cmds[200]; //Todo: make this not a magical number (max num of commands?)
     int stdin_redir[220];
     int stdout_redir[220];
 
     int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
 
+    int p[2];
     int old_p[2];
     int old_stdin = dup(STDIN_FILENO);
     int old_stdout = dup(STDOUT_FILENO);
@@ -134,8 +139,6 @@ void eval(char *cmdline)
     for (int i = 0; i < numCommands; i++) //Create children
     {
         // printf("i = %d", i);
-
-        int p[2];
 
         if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
         {
@@ -146,7 +149,7 @@ void eval(char *cmdline)
             }
         }
 
-        int pid = fork();
+        pid = fork();
 
         if (pid == 0) //If we are the CHILD
         {
@@ -178,24 +181,28 @@ void eval(char *cmdline)
                 dup2(fileno(out), 1);
             }
 
-            execve(args[cmds[i]], &args[cmds[i]], environ);
+            if (execve(args[cmds[i]], &args[cmds[i]], environ) < 0)
+            {
+                printf("Command not found: %s", args[cmds[i]]);
+                return;
+            }
         }
         else //If we are the PARENT
         {
-            old_p[0] = p[0];
-            // old_p[1] = p[1];
 
             if (i == 0) //If this is the first child created
             {
                 pgid = pid;  //Then the group id is set the the first child process group
                 close(p[1]); //whaaa?
-                // old_p[0] = p[0];
+                old_p[0] = p[0];
+                old_p[1] = p[1];
             }
             else if (i < numCommands - 1)
             {
                 close(p[1]);
                 close(old_p[0]);
-                // old_p[0] = p[0];
+                old_p[0] = p[0];
+                old_p[1] = p[1];
             }
             else
             {
@@ -204,16 +211,16 @@ void eval(char *cmdline)
 
             setpgid(pid, pgid); //Set all children to have our process group id (which is the pid of the first child created)
 
-            // close(old_p[STDIN_FILENO]);
-            // close(old_p[STDOUT_FILENO]);
+            int status;
+            if (waitpid(-1, &status, 0) < 0) //Wait for the childen to be completed in order
+            {
+                unix_error("wait: waitpid error, status: " + status);
+            }
         }
-
-        waitpid(pid, NULL, 0); //Wait for the childen to be completed in order
-
-        dup2(old_stdin, STDIN_FILENO);
-        dup2(old_stdout, STDOUT_FILENO);
     }
 
+    dup2(old_stdin, STDIN_FILENO);
+    dup2(old_stdout, STDOUT_FILENO);
     // int cmds[]
 
     // parseargs(args, args, );
