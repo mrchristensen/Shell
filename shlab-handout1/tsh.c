@@ -142,12 +142,11 @@ void eval(char *cmdline)
 
         if (commandIndex < numPipes) //Create pip if we not at the last child (numPipes = numChildren - 1)
         {
-            int res = pipe(pipeFD);
+            int res = pipe(pipeFD); //Create a pipe
 
             if (res == -1) //If the pipe failed to be created
             {
                 printf("Pipe failed to create. Status: %d", res);
-                return;
             }
         }
 
@@ -159,33 +158,41 @@ void eval(char *cmdline)
 
             if (commandIndex == 0) //If we are all the first command
             {
-                //Close the read end of the pipe
                 close(pipeFD[STDIN_FILENO]);
+                //Close the read end of the pipe
                 dup2(pipeFD[STDOUT_FILENO], STDOUT_FILENO);
             }
             else if (commandIndex < numPipes) //If we aren't the first of the last command (or basically a pipe)
             {
+                //Close the read end of the pipe
                 close(pipeFD[STDIN_FILENO]);
+
+                //Dup fd's
                 dup2(previousFD, STDIN_FILENO);
                 dup2(pipeFD[STDOUT_FILENO], STDOUT_FILENO);
             }
-            else
+            else //Last command
             {
+                //No need to close, just dup
                 dup2(previousFD, STDIN_FILENO);
             }
 
-            if (redirectSTDIN[commandIndex] > -1)
+            if (redirectSTDIN[commandIndex] > -1) //If we need to do OUTPUT redirect
             {
+                //Prepare the file
                 inputFile = fopen(args[redirectSTDIN[commandIndex]], "r"); //Open the correct file for reading
                 int inputFD = fileno(inputFile);                           //Get the file descriptor of said opened file
 
+                //Dup
                 dup2(inputFD, STDIN_FILENO); //Stick said fd into STDOUT (replacing it)
             }
-            if (redirectSTOUT[commandIndex] > -1)
+            if (redirectSTOUT[commandIndex] > -1) //If we need to do OUTPUT redirect
             {
+                //Prepare the file
                 outputFile = fopen(args[redirectSTOUT[commandIndex]], "w"); //Open the correct file for writing
                 int outputFD = fileno(outputFile);                          //Get the file descriptor of said opened file
 
+                //Dup
                 dup2(outputFD, STDOUT_FILENO); //Stick said fd into STDOUT (replacing it)
             }
 
@@ -194,7 +201,6 @@ void eval(char *cmdline)
             if (res < 0) //Check to see if execve failed
             {
                 printf("Command not found: %s", args[cmds[commandIndex]]);
-                return;
             }
         }
         else //If we are the PARENT
@@ -202,16 +208,19 @@ void eval(char *cmdline)
 
             if (commandIndex == 0) //If this is the first child created
             {
+                //Close and set the pgid
                 close(pipeFD[STDOUT_FILENO]); //Close the out end of the pipe
                 parentGroupID = pid;          //Then the group id is set the the first child process group
             }
             else if (commandIndex < numPipes) //If we have more pipes to handle
             {
                 close(previousFD);
+                //Close the last fd and the pipe on the WRITE end
                 close(pipeFD[STDOUT_FILENO]);
             }
-            else //The command
+            else //The last command
             {
+                //Just closing the last fd
                 close(previousFD); //Close the last file decriptor
             }
 
@@ -219,6 +228,7 @@ void eval(char *cmdline)
             setpgid(pid, parentGroupID);       //Set all children to have our process group id (which is the pid of the first child created)
         }
 
+        //Waiting time
         int status;
         int res = waitpid(-1, &status, 0); //Wait for the child to finish
         if (res < 0)                       //Wait for the childen to be completed in order
@@ -227,6 +237,7 @@ void eval(char *cmdline)
         }
     }
 
+    //Setting things back to normal
     dup2(defaultSTDIN, STDIN_FILENO);
     close(defaultSTDIN);
     dup2(defaultSTDOUT, STDOUT_FILENO);
