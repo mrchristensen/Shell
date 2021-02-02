@@ -16,6 +16,7 @@
 /* Misc manifest constants */
 #define MAXLINE 1024 /* max line size */
 #define MAXARGS 128  /* max args on a command line */
+#define MAXCMDS 128  /* max comands on a command line */
 
 /* Global variables */
 extern char **environ;   /* defined in libc */
@@ -111,119 +112,126 @@ int main(int argc, char **argv)
 void eval(char *cmdline)
 {
     char *args[MAXARGS];
-    int bg = parseline(cmdline, args);
+    parseline(cmdline, args);
+
+    pid_t parentGroupID;
     pid_t pid;
-    pid_t pgid;
 
-    if (args[0] == NULL)
+    if (builtin_cmd(args) || args[0] == NULL) //If it's a built in command, just run it
     {
         return;
     }
 
-    if (builtin_cmd(args)) //If it's a built in command, just run it
-    {
-        return;
-    }
+    int redirectSTDIN[MAXCMDS]; //Holds the fd's for std IN redirects
+    int cmds[MAXCMDS];          //Hold all the commands indexes into the args[] (array)
+    int redirectSTOUT[MAXCMDS]; //Holds the fd's for std OUT redirects
 
-    int cmds[200]; //Todo: make this not a magical number (max num of commands?)
-    int stdin_redir[220];
-    int stdout_redir[220];
+    int numCommands = parseargs(args, cmds, redirectSTDIN, redirectSTOUT);
 
-    int numCommands = parseargs(args, cmds, stdin_redir, stdout_redir);
+    FILE *outputFile;
+    int numPipes = numCommands - 1; //We have n-1 pipes | n = number of commands
+    int previousFD;
+    FILE *inputFile;
+    int pipeFD[2];
+    int defaultSTDOUT = dup(STDOUT_FILENO);
+    int defaultSTDIN = dup(STDIN_FILENO);
 
-    int p[2];
-    int old_p[2];
-    int old_stdin = dup(STDIN_FILENO);
-    int old_stdout = dup(STDOUT_FILENO);
-
-    for (int i = 0; i < numCommands; i++) //Create children
+    for (int commandIndex = 0; commandIndex < numCommands; commandIndex++) //Create children
     {
         // printf("i = %d", i);
 
-        if (i < numCommands - 1) //Create pip if we not at the last child (numPipes = numChildren - 1)
+        if (commandIndex < numPipes) //Create pip if we not at the last child (numPipes = numChildren - 1)
         {
-            if (pipe(p) == -1)
+            int res = pipe(pipeFD);
+
+            if (res == -1) //If the pipe failed to be created
             {
-                fprintf(stderr, "Pipe Creation Failed");
+                printf("Pipe failed to create. Status: %d", res);
                 return;
             }
         }
 
-        pid = fork();
+        pid = fork(); //Fork
 
         if (pid == 0) //If we are the CHILD
         {
+            setpgid(0, 0);
 
-            if (i == 0)
+            if (commandIndex == 0) //If we are all the first command
             {
-                close(p[0]);
-                dup2(p[1], 1);
+                //Close the read end of the pipe
+                close(pipeFD[STDIN_FILENO]);
+                dup2(pipeFD[STDOUT_FILENO], STDOUT_FILENO);
             }
-            else if (i < numCommands - 1)
+            else if (commandIndex < numPipes) //If we aren't the first of the last command (or basically a pipe)
             {
-                close(p[0]);
-                dup2(p[1], 1);
-                dup2(old_p[0], 0);
+                close(pipeFD[STDIN_FILENO]);
+                dup2(previousFD, STDIN_FILENO);
+                dup2(pipeFD[STDOUT_FILENO], STDOUT_FILENO);
             }
             else
             {
-                dup2(old_p[0], 0);
+                dup2(previousFD, STDIN_FILENO);
             }
 
-            if (stdin_redir[i] >= 0)
+            if (redirectSTDIN[commandIndex] > -1)
             {
-                FILE *in = fopen(args[stdin_redir[i]], "r");
-                dup2(fileno(in), 0);
+                inputFile = fopen(args[redirectSTDIN[commandIndex]], "r"); //Open the correct file for reading
+                int inputFD = fileno(inputFile);                           //Get the file descriptor of said opened file
+
+                dup2(inputFD, STDIN_FILENO); //Stick said fd into STDOUT (replacing it)
             }
-            if (stdout_redir[i] >= 0)
+            if (redirectSTOUT[commandIndex] > -1)
             {
-                FILE *out = fopen(args[stdout_redir[i]], "w");
-                dup2(fileno(out), 1);
+                outputFile = fopen(args[redirectSTOUT[commandIndex]], "w"); //Open the correct file for writing
+                int outputFD = fileno(outputFile);                          //Get the file descriptor of said opened file
+
+                dup2(outputFD, STDOUT_FILENO); //Stick said fd into STDOUT (replacing it)
             }
 
-            if (execve(args[cmds[i]], &args[cmds[i]], environ) < 0)
+            int res = execve(args[cmds[commandIndex]], args + cmds[commandIndex], environ);
+
+            if (res < 0) //Check to see if execve failed
             {
-                printf("Command not found: %s", args[cmds[i]]);
+                printf("Command not found: %s", args[cmds[commandIndex]]);
                 return;
             }
         }
         else //If we are the PARENT
         {
 
-            if (i == 0) //If this is the first child created
+            if (commandIndex == 0) //If this is the first child created
             {
-                pgid = pid;  //Then the group id is set the the first child process group
-                close(p[1]); //whaaa?
-                old_p[0] = p[0];
-                old_p[1] = p[1];
+                close(pipeFD[STDOUT_FILENO]); //Close the out end of the pipe
+                parentGroupID = pid;          //Then the group id is set the the first child process group
             }
-            else if (i < numCommands - 1)
+            else if (commandIndex < numPipes) //If we have more pipes to handle
             {
-                close(p[1]);
-                close(old_p[0]);
-                old_p[0] = p[0];
-                old_p[1] = p[1];
+                close(previousFD);
+                close(pipeFD[STDOUT_FILENO]);
             }
-            else
+            else //The command
             {
-                close(old_p[0]);
+                close(previousFD); //Close the last file decriptor
             }
 
-            setpgid(pid, pgid); //Set all children to have our process group id (which is the pid of the first child created)
+            previousFD = pipeFD[STDIN_FILENO]; //Update the previous fd (for stdin)
+            setpgid(pid, parentGroupID);       //Set all children to have our process group id (which is the pid of the first child created)
+        }
 
-            int status;
-            if (waitpid(-1, &status, 0) < 0) //Wait for the childen to be completed in order
-            {
-                unix_error("wait: waitpid error, status: " + status);
-            }
+        int status;
+        int res = waitpid(-1, &status, 0); //Wait for the child to finish
+        if (res < 0)                       //Wait for the childen to be completed in order
+        {
+            printf("Waiting error, status: %d", status);
         }
     }
 
-    dup2(old_stdin, STDIN_FILENO);
-    dup2(old_stdout, STDOUT_FILENO);
-    // int cmds[]
+    dup2(defaultSTDIN, STDIN_FILENO);
+    close(defaultSTDIN);
+    dup2(defaultSTDOUT, STDOUT_FILENO);
+    close(defaultSTDOUT);
 
-    // parseargs(args, args, );
     return;
 }
 
@@ -370,6 +378,7 @@ int builtin_cmd(char **argv)
     if (strcmp(argv[0], "quit") == 0) //If the command is quit
     {
         exit(EXIT_SUCCESS);
+        return 1; //Do I need this here?
     }
     // else
     // {
